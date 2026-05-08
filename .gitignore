@@ -1,0 +1,53 @@
+.env
+.env.*
+!.env.example
+
+# Modal / cloud credentials
+.modal.toml
+.aws/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temp files
+*.log
+*.tmp
+tmp/
+
+# Data and model artifacts
+dataset/
+deployment/model/
+**/model/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.bin
+*.safetensors
+*.tar
+*.tar.gz
+*.zip
+
+# Local caches
+.cache/
+.cursor/
+.lightning_studio/

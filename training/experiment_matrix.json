@@ -1,0 +1,103 @@
+{
+  "selection_rule": "Select by validation emotion_macro_f1 for emotion experiments. Run test evaluation only for the final selected configuration.",
+  "emotion_experiments": [
+    {
+      "id": "emotion_e01_ce_no_weights",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "none",
+        "label-smoothing": 0.0,
+        "sampler-strategy": "none",
+        "selection-metric": "emotion_macro_f1"
+      }
+    },
+    {
+      "id": "emotion_e02_current_weight_ablation",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "inverse",
+        "sentiment-class-weight-strategy": "inverse",
+        "label-smoothing": 0.05,
+        "sampler-strategy": "none",
+        "selection-metric": "emotion_macro_f1"
+      }
+    },
+    {
+      "id": "emotion_e03_mild_sqrt_weights",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "sqrt_inverse",
+        "sentiment-class-weight-strategy": "none",
+        "label-smoothing": 0.0,
+        "sampler-strategy": "none",
+        "selection-metric": "emotion_macro_f1"
+      }
+    },
+    {
+      "id": "emotion_e04_weighted_sampler",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "none",
+        "sampler-strategy": "weighted",
+        "sampler-task": "emotion",
+        "selection-metric": "emotion_macro_f1"
+      }
+    },
+    {
+      "id": "emotion_e05_focal_no_weights",
+      "args": {
+        "loss-type": "focal",
+        "focal-gamma": 2.0,
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "none",
+        "label-smoothing": 0.0,
+        "sampler-strategy": "none",
+        "selection-metric": "emotion_macro_f1"
+      }
+    },
+    {
+      "id": "emotion_e06_unfreeze_text_top2",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "none",
+        "text-unfreeze-layers": 2,
+        "text-lr": 8e-6,
+        "selection-metric": "emotion_macro_f1"
+      }
+    }
+  ],
+  "sentiment_experiments": [
+    {
+      "id": "sentiment_s01_ce_no_weights",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "none",
+        "selection-metric": "sentiment_macro_f1"
+      }
+    },
+    {
+      "id": "sentiment_s02_mild_sentiment_weights",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "sqrt_inverse",
+        "selection-metric": "sentiment_macro_f1"
+      }
+    },
+    {
+      "id": "sentiment_s03_text_unfreeze_top2",
+      "args": {
+        "loss-type": "ce",
+        "emotion-class-weight-strategy": "none",
+        "sentiment-class-weight-strategy": "none",
+        "text-unfreeze-layers": 2,
+        "text-lr": 8e-6,
+        "selection-metric": "sentiment_macro_f1"
+      }
+    }
+  ]
+}
