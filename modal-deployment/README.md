@@ -33,6 +33,10 @@ From this directory:
 modal deploy app.py
 ```
 
+Redeploy after every change to `app.py`, `inference_core.py`, `models.py`, or
+`service_contract.py`. Modal will not pick up local edits until you deploy
+again.
+
 If your model weights are not already present in the Modal volume, upload them
 first or as part of a validation run:
 

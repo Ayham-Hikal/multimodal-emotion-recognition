@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 
 import modal
@@ -52,6 +53,64 @@ def _resolve_local_path(raw_path: str) -> str:
         "File not found. Tried: "
         f"{candidate.resolve()}, {cwd_candidate}, {repo_root_candidate}"
     )
+
+
+def _download_media_to_path(media_url: str, destination_path: str) -> None:
+    request = urllib.request.Request(
+        media_url,
+        headers={
+            "User-Agent": "signalframe-modal-inference/1.0",
+        },
+    )
+
+    with urllib.request.urlopen(request, timeout=120) as response, open(
+        destination_path, "wb"
+    ) as output_file:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            output_file.write(chunk)
+
+
+def _extract_time_range_to_path(
+    input_path: str,
+    output_path: str,
+    source_start_ms: int,
+    source_end_ms: int,
+) -> None:
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        str(max(0, source_start_ms) / 1000),
+        "-to",
+        str(max(source_start_ms + 1, source_end_ms) / 1000),
+        "-i",
+        input_path,
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        "-y",
+        output_path,
+    ]
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        details = stderr or stdout or "ffmpeg exited with no diagnostic output."
+        raise RuntimeError(f"ffmpeg failed while extracting the media range: {details}")
 
 
 @app.function(
@@ -108,36 +167,25 @@ class InferenceEndpoint:
         source_start_ms: int,
         source_end_ms: int,
     ) -> dict:
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
-            tmp_video_path = tmp_video.name
+        with tempfile.NamedTemporaryFile(suffix=".source.mp4", delete=False) as tmp_input:
+            tmp_input_path = tmp_input.name
+        with tempfile.NamedTemporaryFile(suffix=".chunk.mp4", delete=False) as tmp_chunk:
+            tmp_chunk_path = tmp_chunk.name
 
         try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-ss",
-                    str(max(0, source_start_ms) / 1000),
-                    "-to",
-                    str(max(source_start_ms + 1, source_end_ms) / 1000),
-                    "-i",
-                    media_url,
-                    "-c:v",
-                    "libx264",
-                    "-c:a",
-                    "aac",
-                    "-movflags",
-                    "+faststart",
-                    "-y",
-                    tmp_video_path,
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            _download_media_to_path(media_url, tmp_input_path)
+            _extract_time_range_to_path(
+                input_path=tmp_input_path,
+                output_path=tmp_chunk_path,
+                source_start_ms=source_start_ms,
+                source_end_ms=source_end_ms,
             )
-            return self.service.predict(tmp_video_path)
+            return self.service.predict(tmp_chunk_path)
         finally:
-            if os.path.exists(tmp_video_path):
-                os.remove(tmp_video_path)
+            if os.path.exists(tmp_input_path):
+                os.remove(tmp_input_path)
+            if os.path.exists(tmp_chunk_path):
+                os.remove(tmp_chunk_path)
 
 
 class TimelineChunkRequest(BaseModel):
