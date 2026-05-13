@@ -1,9 +1,19 @@
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
 import modal
+from fastapi import Header, HTTPException
+from pydantic import BaseModel
+
+from service_contract import (
+    ModalServiceSettings,
+    build_timeline_chunk_response,
+    ensure_authorized,
+    normalize_source_range,
+)
 
 APP_NAME = "multimodal-sentiment-inference"
 MODEL_VOLUME_NAME = "multimodal-sentiment-model"
@@ -18,8 +28,10 @@ image = (
     modal.Image.from_registry("pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime")
     .apt_install("ffmpeg", "libgl1")
     .pip_install_from_requirements(str(BASE_DIR / "requirements.txt"))
+    .pip_install("fastapi[standard]")
     .add_local_file(str(BASE_DIR / "inference_core.py"), "/root/inference_core.py")
     .add_local_file(str(BASE_DIR / "models.py"), "/root/models.py")
+    .add_local_file(str(BASE_DIR / "service_contract.py"), "/root/service_contract.py")
 )
 
 
@@ -88,6 +100,100 @@ class InferenceEndpoint:
         finally:
             if os.path.exists(tmp_video_path):
                 os.remove(tmp_video_path)
+
+    @modal.method()
+    def predict_url_range(
+        self,
+        media_url: str,
+        source_start_ms: int,
+        source_end_ms: int,
+    ) -> dict:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_video:
+            tmp_video_path = tmp_video.name
+
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-ss",
+                    str(max(0, source_start_ms) / 1000),
+                    "-to",
+                    str(max(source_start_ms + 1, source_end_ms) / 1000),
+                    "-i",
+                    media_url,
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    "-movflags",
+                    "+faststart",
+                    "-y",
+                    tmp_video_path,
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return self.service.predict(tmp_video_path)
+        finally:
+            if os.path.exists(tmp_video_path):
+                os.remove(tmp_video_path)
+
+
+class TimelineChunkRequest(BaseModel):
+    mediaUrl: str
+    sourceStartMs: int
+    sourceEndMs: int
+    chunkId: str
+    mimeType: str | None = None
+
+
+@app.function(
+    image=image,
+    timeout=30,
+)
+@modal.fastapi_endpoint(method="GET")
+def healthcheck() -> dict:
+    settings = ModalServiceSettings.from_env()
+    return {
+        "ok": True,
+        "service": APP_NAME,
+        "modelVersion": settings.model_version,
+        "authEnabled": bool(settings.auth_token),
+        "modelVolume": MODEL_VOLUME_NAME,
+    }
+
+
+@app.function(
+    image=image,
+    timeout=900,
+)
+@modal.fastapi_endpoint(method="POST")
+def infer_timeline_chunk(
+    payload: TimelineChunkRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    settings = ModalServiceSettings.from_env()
+    try:
+        ensure_authorized(settings, authorization)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    source_start_ms, source_end_ms = normalize_source_range(
+        payload.sourceStartMs,
+        payload.sourceEndMs,
+    )
+    result = InferenceEndpoint().predict_url_range.remote(
+        media_url=payload.mediaUrl,
+        source_start_ms=source_start_ms,
+        source_end_ms=source_end_ms,
+    )
+
+    return build_timeline_chunk_response(
+        chunk_id=payload.chunkId,
+        model_version=settings.model_version,
+        inference_result=result,
+    )
 
 
 @app.local_entrypoint()

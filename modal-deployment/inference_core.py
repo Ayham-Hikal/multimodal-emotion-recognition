@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -197,10 +198,14 @@ class InferenceService:
         )
 
     def predict(self, video_path: str) -> dict:
+        started_at = time.perf_counter()
+        transcription_started_at = time.perf_counter()
         segments, _ = self.transcriber.transcribe(video_path, word_timestamps=True)
         transcription_segments = list(segments)
+        transcription_ms = round((time.perf_counter() - transcription_started_at) * 1000)
         utterance_processor = VideoUtteranceProcessor()
         predictions = []
+        failed_segments = 0
 
         for segment in transcription_segments:
             segment_path = None
@@ -235,7 +240,7 @@ class InferenceService:
                     {
                         "start_time": segment.start,
                         "end_time": segment.end,
-                        "text": segment.text,
+                        "text": segment.text.strip(),
                         "emotions": [
                             {"label": EMOTION_MAP[idx.item()], "confidence": conf.item()}
                             for idx, conf in zip(emotion_indices, emotion_values)
@@ -247,16 +252,29 @@ class InferenceService:
                     }
                 )
             except Exception as exc:  # noqa: BLE001
-                predictions.append(
+                failed_segments += 1
+                print(
+                    "Utterance inference failed",
                     {
                         "start_time": getattr(segment, "start", None),
                         "end_time": getattr(segment, "end", None),
-                        "text": getattr(segment, "text", ""),
                         "error": str(exc),
-                    }
+                    },
                 )
             finally:
                 if segment_path and os.path.exists(segment_path):
                     os.remove(segment_path)
 
-        return {"utterances": predictions}
+        total_ms = round((time.perf_counter() - started_at) * 1000)
+        return {
+            "utterances": predictions,
+            "debug": {
+                "preprocessingMs": transcription_ms,
+                "inferenceMs": max(0, total_ms - transcription_ms),
+                "framesUsed": 30 if predictions else 0,
+                "audioUsed": True,
+                "textUsed": True,
+                "videoUsed": True,
+                "failedUtteranceCount": failed_segments,
+            },
+        }
