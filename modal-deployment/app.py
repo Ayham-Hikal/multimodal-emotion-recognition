@@ -1,16 +1,21 @@
 import json
 import os
+import re
 import subprocess
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
 import modal
 from fastapi import Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from service_contract import (
     ModalServiceSettings,
+    build_modal_error_payload,
+    build_timeline_batch_response,
     build_timeline_chunk_response,
     ensure_authorized,
     normalize_source_range,
@@ -36,6 +41,25 @@ image = (
 )
 
 
+class TimelineBatchChunkRequest(BaseModel):
+    chunkId: str
+    sourceStartMs: int
+    sourceEndMs: int
+
+
+class TimelineInferenceRequest(BaseModel):
+    schemaVersion: int | None = None
+    mode: str | None = None
+    mediaUrl: str
+    sourceStartMs: int | None = None
+    sourceEndMs: int | None = None
+    selectionStartMs: int | None = None
+    selectionEndMs: int | None = None
+    chunkId: str | None = None
+    mimeType: str | None = None
+    chunks: list[TimelineBatchChunkRequest] | None = None
+
+
 def _resolve_local_path(raw_path: str) -> str:
     candidate = Path(raw_path)
     if candidate.is_file():
@@ -52,6 +76,41 @@ def _resolve_local_path(raw_path: str) -> str:
     raise FileNotFoundError(
         "File not found. Tried: "
         f"{candidate.resolve()}, {cwd_candidate}, {repo_root_candidate}"
+    )
+
+
+def _redact_urls(value: str) -> str:
+    return re.sub(r"https?://\S+", "<redacted-url>", value)
+
+
+def _error_detail_from_exception(exc: Exception) -> str:
+    detail = str(exc).strip() or exc.__class__.__name__
+    return _redact_urls(detail)
+
+
+def _error_status_code(code: str) -> int:
+    if code == "VALIDATION_FAILED":
+        return 400
+    if code == "DOWNLOAD_FAILED":
+        return 502
+    if code == "FFMPEG_EXTRACT_FAILED":
+        return 422
+    return 500
+
+
+def _json_error_response(
+    *,
+    code: str,
+    detail: str,
+    retryable: bool,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=_error_status_code(code),
+        content=build_modal_error_payload(
+            code=code,
+            detail=detail,
+            retryable=retryable,
+        ),
     )
 
 
@@ -161,39 +220,103 @@ class InferenceEndpoint:
                 os.remove(tmp_video_path)
 
     @modal.method()
-    def predict_url_range(
+    def predict_url_selection(
         self,
         media_url: str,
-        source_start_ms: int,
-        source_end_ms: int,
+        selection_start_ms: int,
+        selection_end_ms: int,
     ) -> dict:
         with tempfile.NamedTemporaryFile(suffix=".source.mp4", delete=False) as tmp_input:
             tmp_input_path = tmp_input.name
-        with tempfile.NamedTemporaryFile(suffix=".chunk.mp4", delete=False) as tmp_chunk:
-            tmp_chunk_path = tmp_chunk.name
+        with tempfile.NamedTemporaryFile(suffix=".selection.mp4", delete=False) as tmp_selection:
+            tmp_selection_path = tmp_selection.name
 
         try:
-            _download_media_to_path(media_url, tmp_input_path)
-            _extract_time_range_to_path(
-                input_path=tmp_input_path,
-                output_path=tmp_chunk_path,
-                source_start_ms=source_start_ms,
-                source_end_ms=source_end_ms,
-            )
-            return self.service.predict(tmp_chunk_path)
+            download_started_at = time.perf_counter()
+            try:
+                _download_media_to_path(media_url, tmp_input_path)
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "error": build_modal_error_payload(
+                        code="DOWNLOAD_FAILED",
+                        detail=_error_detail_from_exception(exc),
+                        retryable=True,
+                    )
+                }
+            download_ms = round((time.perf_counter() - download_started_at) * 1000)
+
+            ffmpeg_started_at = time.perf_counter()
+            try:
+                _extract_time_range_to_path(
+                    input_path=tmp_input_path,
+                    output_path=tmp_selection_path,
+                    source_start_ms=selection_start_ms,
+                    source_end_ms=selection_end_ms,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "error": build_modal_error_payload(
+                        code="FFMPEG_EXTRACT_FAILED",
+                        detail=_error_detail_from_exception(exc),
+                        retryable=False,
+                    )
+                }
+            ffmpeg_ms = round((time.perf_counter() - ffmpeg_started_at) * 1000)
+
+            try:
+                result = self.service.predict(tmp_selection_path)
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "error": build_modal_error_payload(
+                        code="INFERENCE_FAILED",
+                        detail=_error_detail_from_exception(exc),
+                        retryable=True,
+                    )
+                }
+
+            debug = result.setdefault("debug", {})
+            if isinstance(debug, dict):
+                debug["downloadMs"] = download_ms
+                debug["ffmpegMs"] = ffmpeg_ms
+                debug["selectionDurationMs"] = max(0, selection_end_ms - selection_start_ms)
+
+            return {"result": result}
         finally:
             if os.path.exists(tmp_input_path):
                 os.remove(tmp_input_path)
-            if os.path.exists(tmp_chunk_path):
-                os.remove(tmp_chunk_path)
+            if os.path.exists(tmp_selection_path):
+                os.remove(tmp_selection_path)
 
 
-class TimelineChunkRequest(BaseModel):
-    mediaUrl: str
-    sourceStartMs: int
-    sourceEndMs: int
-    chunkId: str
-    mimeType: str | None = None
+def _normalize_batch_chunks(
+    *,
+    chunks: list[TimelineBatchChunkRequest],
+    selection_start_ms: int,
+    selection_end_ms: int,
+) -> tuple[list[dict[str, int | str]] | None, JSONResponse | None]:
+    normalized_chunks: list[dict[str, int | str]] = []
+
+    for chunk in chunks:
+        chunk_start_ms, chunk_end_ms = normalize_source_range(
+            chunk.sourceStartMs,
+            chunk.sourceEndMs,
+        )
+        if chunk_start_ms < selection_start_ms or chunk_end_ms > selection_end_ms:
+            return None, _json_error_response(
+                code="VALIDATION_FAILED",
+                detail="Chunk ranges must stay within the requested selection window.",
+                retryable=False,
+            )
+
+        normalized_chunks.append(
+            {
+                "chunkId": chunk.chunkId,
+                "sourceStartMs": chunk_start_ms,
+                "sourceEndMs": chunk_end_ms,
+            }
+        )
+
+    return normalized_chunks, None
 
 
 @app.function(
@@ -218,29 +341,88 @@ def healthcheck() -> dict:
 )
 @modal.fastapi_endpoint(method="POST")
 def infer_timeline_chunk(
-    payload: TimelineChunkRequest,
+    payload: TimelineInferenceRequest,
     authorization: str | None = Header(default=None),
-) -> dict:
+) -> dict | JSONResponse:
     settings = ModalServiceSettings.from_env()
     try:
         ensure_authorized(settings, authorization)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
+    if payload.chunks:
+        if payload.selectionStartMs is None or payload.selectionEndMs is None:
+            return _json_error_response(
+                code="VALIDATION_FAILED",
+                detail="Batch inference requests must include selectionStartMs and selectionEndMs.",
+                retryable=False,
+            )
+
+        selection_start_ms, selection_end_ms = normalize_source_range(
+            payload.selectionStartMs,
+            payload.selectionEndMs,
+        )
+        normalized_chunks, validation_error = _normalize_batch_chunks(
+            chunks=payload.chunks,
+            selection_start_ms=selection_start_ms,
+            selection_end_ms=selection_end_ms,
+        )
+        if validation_error is not None:
+            return validation_error
+
+        remote_response = InferenceEndpoint().predict_url_selection.remote(
+            media_url=payload.mediaUrl,
+            selection_start_ms=selection_start_ms,
+            selection_end_ms=selection_end_ms,
+        )
+        if isinstance(remote_response, dict) and isinstance(remote_response.get("error"), dict):
+            error_payload = remote_response["error"]
+            return JSONResponse(
+                status_code=_error_status_code(str(error_payload.get("code"))),
+                content=error_payload,
+            )
+
+        inference_result = remote_response.get("result", {}) if isinstance(remote_response, dict) else {}
+        return build_timeline_batch_response(
+            model_version=settings.model_version,
+            selection_source_start_ms=selection_start_ms,
+            chunks=normalized_chunks or [],
+            inference_result=inference_result,
+            debug=inference_result.get("debug") if isinstance(inference_result, dict) else None,
+        )
+
+    if (
+        payload.chunkId is None
+        or payload.sourceStartMs is None
+        or payload.sourceEndMs is None
+    ):
+        return _json_error_response(
+            code="VALIDATION_FAILED",
+            detail="Single-chunk inference requests must include chunkId, sourceStartMs, and sourceEndMs.",
+            retryable=False,
+        )
+
     source_start_ms, source_end_ms = normalize_source_range(
         payload.sourceStartMs,
         payload.sourceEndMs,
     )
-    result = InferenceEndpoint().predict_url_range.remote(
+    remote_response = InferenceEndpoint().predict_url_selection.remote(
         media_url=payload.mediaUrl,
-        source_start_ms=source_start_ms,
-        source_end_ms=source_end_ms,
+        selection_start_ms=source_start_ms,
+        selection_end_ms=source_end_ms,
     )
+    if isinstance(remote_response, dict) and isinstance(remote_response.get("error"), dict):
+        error_payload = remote_response["error"]
+        return JSONResponse(
+            status_code=_error_status_code(str(error_payload.get("code"))),
+            content=error_payload,
+        )
 
+    inference_result = remote_response.get("result", {}) if isinstance(remote_response, dict) else {}
     return build_timeline_chunk_response(
         chunk_id=payload.chunkId,
         model_version=settings.model_version,
-        inference_result=result,
+        inference_result=inference_result,
     )
 
 

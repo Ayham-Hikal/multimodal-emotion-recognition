@@ -7,8 +7,18 @@ from typing import Any
 
 
 DEFAULT_MODAL_MODEL_VERSION = "meld-multimodal-v1"
+MODAL_SCHEMA_VERSION = 1
 NEUTRAL_EMOTION = "neutral"
 NEUTRAL_SENTIMENT = "neutral"
+
+SAFE_ERROR_MESSAGES = {
+    "DOWNLOAD_FAILED": "We couldn't access the source media for analysis.",
+    "FFMPEG_EXTRACT_FAILED": "We couldn't prepare this clip for analysis.",
+    "INFERENCE_FAILED": "The AI model couldn't finish this analysis.",
+    "VALIDATION_FAILED": "This selection couldn't be analyzed.",
+    "TIMEOUT": "The AI analysis took too long to finish.",
+    "HTTP_ERROR": "The AI analysis service returned an unexpected response.",
+}
 
 
 @dataclass(frozen=True)
@@ -161,6 +171,38 @@ def _average_confidence(utterances: list[dict[str, Any]]) -> float:
     return sum(utterance_confidences) / len(utterance_confidences)
 
 
+def _build_debug_payload(
+    *,
+    inference_result: dict[str, Any],
+    model_version: str,
+    debug: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    debug_payload: dict[str, Any] = {}
+    if isinstance(inference_result.get("debug"), dict):
+        debug_payload.update(inference_result["debug"])
+    if debug:
+        debug_payload.update(debug)
+    debug_payload["modelVersion"] = model_version
+    debug_payload["source"] = "modal"
+    return debug_payload
+
+
+def build_modal_error_payload(
+    *,
+    code: str,
+    detail: str,
+    retryable: bool,
+    message: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": MODAL_SCHEMA_VERSION,
+        "code": code,
+        "retryable": retryable,
+        "message": message or SAFE_ERROR_MESSAGES.get(code, SAFE_ERROR_MESSAGES["INFERENCE_FAILED"]),
+        "detail": detail,
+    }
+
+
 def build_timeline_chunk_response(
     *,
     chunk_id: str,
@@ -181,19 +223,18 @@ def build_timeline_chunk_response(
         else None
     ) or _collapse_transcript(utterances)
 
-    debug_payload = {}
-    if isinstance(inference_result.get("debug"), dict):
-        debug_payload.update(inference_result["debug"])
-    if debug:
-        debug_payload.update(debug)
-    debug_payload["modelVersion"] = model_version
-    debug_payload["source"] = "modal"
+    debug_payload = _build_debug_payload(
+        inference_result=inference_result,
+        model_version=model_version,
+        debug=debug,
+    )
     debug_payload["utteranceCount"] = len(utterances)
 
     dominant_emotion = emotions[0]["label"] if emotions else NEUTRAL_EMOTION
     dominant_sentiment = sentiments[0]["label"] if sentiments else NEUTRAL_SENTIMENT
 
     response: dict[str, Any] = {
+        "schemaVersion": MODAL_SCHEMA_VERSION,
         "chunkId": chunk_id,
         "emotions": emotions,
         "sentiments": sentiments,
@@ -209,3 +250,90 @@ def build_timeline_chunk_response(
         response["transcript"] = transcript
 
     return response
+
+
+def _clip_utterance_to_chunk_window(
+    utterance: dict[str, Any],
+    *,
+    chunk_start_s: float,
+    chunk_end_s: float,
+) -> dict[str, Any] | None:
+    start_time = utterance.get("start_time")
+    end_time = utterance.get("end_time")
+    if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
+        return None
+
+    clipped_start = max(float(start_time), chunk_start_s)
+    clipped_end = min(float(end_time), chunk_end_s)
+    if clipped_end <= clipped_start:
+        return None
+
+    clipped = {
+        "start_time": round(clipped_start - chunk_start_s, 3),
+        "end_time": round(clipped_end - chunk_start_s, 3),
+        "emotions": utterance["emotions"],
+        "sentiments": utterance["sentiments"],
+    }
+    if isinstance(utterance.get("text"), str) and utterance["text"].strip():
+        clipped["text"] = utterance["text"].strip()
+
+    return clipped
+
+
+def build_timeline_batch_response(
+    *,
+    model_version: str,
+    selection_source_start_ms: int,
+    chunks: list[dict[str, Any]],
+    inference_result: dict[str, Any],
+    debug: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    utterances = _coerce_utterances(inference_result.get("utterances"))
+    results: list[dict[str, Any]] = []
+
+    for chunk in chunks:
+        chunk_id = chunk.get("chunkId")
+        source_start_ms = chunk.get("sourceStartMs")
+        source_end_ms = chunk.get("sourceEndMs")
+        if not isinstance(chunk_id, str):
+            continue
+        if not isinstance(source_start_ms, (int, float)) or not isinstance(
+            source_end_ms, (int, float)
+        ):
+            continue
+
+        chunk_start_s = (float(source_start_ms) - float(selection_source_start_ms)) / 1000
+        chunk_end_s = (float(source_end_ms) - float(selection_source_start_ms)) / 1000
+        chunk_utterances = [
+            clipped
+            for utterance in utterances
+            if (clipped := _clip_utterance_to_chunk_window(
+                utterance,
+                chunk_start_s=chunk_start_s,
+                chunk_end_s=chunk_end_s,
+            ))
+            is not None
+        ]
+
+        results.append(
+            build_timeline_chunk_response(
+                chunk_id=chunk_id,
+                model_version=model_version,
+                inference_result={"utterances": chunk_utterances},
+                debug=debug,
+            )
+        )
+
+    top_level_debug = _build_debug_payload(
+        inference_result=inference_result,
+        model_version=model_version,
+        debug=debug,
+    )
+    top_level_debug["chunkCount"] = len(results)
+
+    return {
+        "schemaVersion": MODAL_SCHEMA_VERSION,
+        "results": results,
+        "debug": top_level_debug,
+        "modelVersion": model_version,
+    }
