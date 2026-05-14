@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 
 import modal
-from fastapi import Header, HTTPException
+from fastapi import Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -89,12 +89,16 @@ def _error_detail_from_exception(exc: Exception) -> str:
 
 
 def _error_status_code(code: str) -> int:
+    if code == "UNAUTHORIZED":
+        return 401
     if code == "VALIDATION_FAILED":
         return 400
     if code == "DOWNLOAD_FAILED":
         return 502
     if code == "FFMPEG_EXTRACT_FAILED":
         return 422
+    if code == "SERVICE_UNAVAILABLE":
+        return 503
     return 500
 
 
@@ -348,7 +352,11 @@ def infer_timeline_chunk(
     try:
         ensure_authorized(settings, authorization)
     except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
+        return _json_error_response(
+            code="UNAUTHORIZED",
+            detail=_error_detail_from_exception(exc),
+            retryable=False,
+        )
 
     if payload.chunks:
         if payload.selectionStartMs is None or payload.selectionEndMs is None:

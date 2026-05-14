@@ -136,6 +136,21 @@ class ModalServiceContractTests(unittest.TestCase):
         self.assertEqual(payload["detail"], "HTTP 403 from upstream object store.")
         self.assertEqual(payload["schemaVersion"], 1)
 
+    def test_structured_auth_error_payload_uses_safe_copy(self) -> None:
+        payload = build_modal_error_payload(
+            code="UNAUTHORIZED",
+            detail="Missing or invalid bearer token.",
+            retryable=False,
+        )
+
+        self.assertEqual(payload["code"], "UNAUTHORIZED")
+        self.assertFalse(payload["retryable"])
+        self.assertEqual(
+            payload["message"],
+            "The AI analysis service rejected the request credentials.",
+        )
+        self.assertEqual(payload["detail"], "Missing or invalid bearer token.")
+
 
 if __name__ == "__main__":
     unittest.main()

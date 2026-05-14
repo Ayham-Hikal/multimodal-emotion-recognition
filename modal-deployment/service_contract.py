@@ -16,6 +16,8 @@ SAFE_ERROR_MESSAGES = {
     "FFMPEG_EXTRACT_FAILED": "We couldn't prepare this clip for analysis.",
     "INFERENCE_FAILED": "The AI model couldn't finish this analysis.",
     "VALIDATION_FAILED": "This selection couldn't be analyzed.",
+    "UNAUTHORIZED": "The AI analysis service rejected the request credentials.",
+    "SERVICE_UNAVAILABLE": "The AI analysis service is temporarily unavailable.",
     "TIMEOUT": "The AI analysis took too long to finish.",
     "HTTP_ERROR": "The AI analysis service returned an unexpected response.",
 }

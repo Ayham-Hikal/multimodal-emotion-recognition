@@ -27,7 +27,8 @@ analysis. It is designed to match the Convex caller in
 
 - `MODAL_INFERENCE_AUTH_TOKEN`
   Optional shared bearer token. If set here, Convex must send the same token in
-  the `Authorization` header.
+  the `Authorization` header. Unauthorized requests return a structured
+  `UNAUTHORIZED` JSON error payload.
 - `MODAL_MODEL_VERSION`
   Optional model version label returned in the response debug payload. Defaults
   to `meld-multimodal-v1`.
@@ -67,6 +68,18 @@ If auth is enabled on Modal, also mirror the token:
 npx convex env set MODAL_INFERENCE_AUTH_TOKEN <shared-token>
 ```
 
+Optional Convex-side controls:
+
+```bash
+npx convex env set MODAL_INFERENCE_TIMEOUT_MS 240000
+npx convex env set MODAL_INFERENCE_LOG_DIAGNOSTICS true
+```
+
+- `MODAL_INFERENCE_TIMEOUT_MS` controls the Convex fetch timeout for a single
+  Modal request. Default: `180000` ms.
+- `MODAL_INFERENCE_LOG_DIAGNOSTICS=true` enables redacted HTTP/gateway
+  diagnostics from `modalClient.ts` for incident debugging.
+
 After any deploy that changes the response contract or route behavior, re-run:
 
 ```bash
@@ -83,6 +96,9 @@ Run these checks after deploy:
 ```bash
 curl <modal-healthcheck-url>
 ```
+
+If `healthcheck` returns `"authEnabled": true`, repeat requests with the same
+bearer token configured in Convex so you verify the exact app-to-Modal path.
 
 Then run one timeline analysis job against a known H.264/AAC test asset and
 confirm the workflow reaches `complete-job` in Inngest and stores timeline
@@ -122,3 +138,10 @@ Failures return structured JSON with:
 
 The `message` field is safe for UI copy. Keep operational details in `detail`
 and logs, not in user-facing strings.
+
+Common operational codes:
+
+- `UNAUTHORIZED`: Convex and Modal auth tokens do not match, or the bearer
+  token is missing.
+- `SERVICE_UNAVAILABLE`: gateway / platform / upstream availability issue while
+  reaching the deployed Modal service.
