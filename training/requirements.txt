@@ -1,3 +1,9 @@
+# Local / SageMaker training environment (pin CUDA wheels to your stack).
+# Recommended: install the repo package once from `backend/`:
+#   pip install -U pip setuptools wheel
+#   pip install -e ".[train,infer]"
+#
+# If you prefer a flat requirements file only:
 torch==2.5.1
 torchaudio==2.5.1
 torchvision==0.20.1

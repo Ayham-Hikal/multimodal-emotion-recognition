@@ -29,7 +29,7 @@ class ModalServiceSettings:
     model_version: str
 
     @classmethod
-    def from_env(cls) -> "ModalServiceSettings":
+    def from_env(cls) -> ModalServiceSettings:
         raw_token = environ.get("MODAL_INFERENCE_AUTH_TOKEN", "").strip()
         raw_model_version = environ.get("MODAL_MODEL_VERSION", "").strip()
         return cls(
@@ -216,9 +216,9 @@ def build_timeline_chunk_response(
     emotions = _coerce_predictions(inference_result.get("emotions")) or _aggregate_predictions(
         utterances, "emotions"
     )
-    sentiments = _coerce_predictions(
-        inference_result.get("sentiments")
-    ) or _aggregate_predictions(utterances, "sentiments")
+    sentiments = _coerce_predictions(inference_result.get("sentiments")) or _aggregate_predictions(
+        utterances, "sentiments"
+    )
     transcript = (
         inference_result.get("transcript")
         if isinstance(inference_result.get("transcript"), str)
@@ -299,9 +299,7 @@ def build_timeline_batch_response(
         source_end_ms = chunk.get("sourceEndMs")
         if not isinstance(chunk_id, str):
             continue
-        if not isinstance(source_start_ms, (int, float)) or not isinstance(
-            source_end_ms, (int, float)
-        ):
+        if not isinstance(source_start_ms, (int, float)) or not isinstance(source_end_ms, (int, float)):
             continue
 
         chunk_start_s = (float(source_start_ms) - float(selection_source_start_ms)) / 1000
@@ -309,11 +307,13 @@ def build_timeline_batch_response(
         chunk_utterances = [
             clipped
             for utterance in utterances
-            if (clipped := _clip_utterance_to_chunk_window(
-                utterance,
-                chunk_start_s=chunk_start_s,
-                chunk_end_s=chunk_end_s,
-            ))
+            if (
+                clipped := _clip_utterance_to_chunk_window(
+                    utterance,
+                    chunk_start_s=chunk_start_s,
+                    chunk_end_s=chunk_end_s,
+                )
+            )
             is not None
         ]
 

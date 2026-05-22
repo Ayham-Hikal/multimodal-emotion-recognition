@@ -1,147 +1,37 @@
-# Modal Inference Service
+# Modal GPU deployment
 
-This folder contains the production-facing Modal HTTP service for timeline AI
-analysis. It is designed to match the Convex caller in
-`frontend/convex/inngest/modalClient.ts`.
+Serverless inference lives in `app.py`. It packages the shared library
+`signalframe_ml/` into the container image (`PYTHONPATH=/pkg`) so HTTP
+wrappers and the GPU worker stay in sync with local training.
 
-## What It Exposes
+## Prerequisites
 
-- `POST infer_timeline_chunk`
-  Accepts `schemaVersion: 1` requests in two modes:
-  - Single chunk:
-    - `mediaUrl`
-    - `sourceStartMs`
-    - `sourceEndMs`
-    - `chunkId`
-    - `mimeType`
-  - Batched selection:
-    - `mediaUrl`
-    - `selectionStartMs`
-    - `selectionEndMs`
-    - `mimeType`
-    - `chunks[]` with `chunkId`, `sourceStartMs`, `sourceEndMs`
-- `GET healthcheck`
-  Returns a lightweight config and deployment health payload.
+* Modal account + CLI (`pip install modal`, `modal token new`)
+* From repo root or `backend/`, ensure Python can import `signalframe_ml`
+  (`pip install -e ./backend` or run Modal commands with `PYTHONPATH` including
+  `backend/`).
+
+## Deploy / smoke
+
+```bash
+cd backend/modal-deployment
+modal deploy app.py          # production
+modal run app.py --model-path /path/to/model.pth --video-path /path/to/clip.mp4
+```
+
+Redeploy after changes to `app.py` **or** any file under `signalframe_ml/`.
 
 ## Environment
 
-- `MODAL_INFERENCE_AUTH_TOKEN`
-  Optional shared bearer token. If set here, Convex must send the same token in
-  the `Authorization` header. Unauthorized requests return a structured
-  `UNAUTHORIZED` JSON error payload.
-- `MODAL_MODEL_VERSION`
-  Optional model version label returned in the response debug payload. Defaults
-  to `meld-multimodal-v1`.
+| Variable | Purpose |
+|----------|---------|
+| `MODAL_INFERENCE_AUTH_TOKEN` | When set, `infer_timeline_chunk` requires `Authorization: Bearer …` |
+| `MODAL_MODEL_VERSION` | Logical version echoed in JSON (default `meld-multimodal-v1`) |
 
-## Deploy
+## Layout
 
-From this directory:
-
-```bash
-modal deploy app.py
-```
-
-Redeploy after every change to `app.py`, `inference_core.py`, `models.py`, or
-`service_contract.py`. Modal will not pick up local edits until you deploy
-again. Treat each deploy as a release artifact: capture the deployed endpoint
-URL and the Modal version/build identifier shown by the CLI in the PR or
-release checklist so Convex and the runbook always point at the same build.
-
-If your model weights are not already present in the Modal volume, upload them
-first or as part of a validation run:
-
-```bash
-modal run app.py --model-path ../deployment/model/model.pth --video-path /path/to/sample.mp4
-```
-
-## Convex Wiring
-
-After deploy, copy the `infer_timeline_chunk` HTTPS URL into Convex:
-
-```bash
-npx convex env set MODAL_INFERENCE_URL <modal-endpoint-url>
-```
-
-If auth is enabled on Modal, also mirror the token:
-
-```bash
-npx convex env set MODAL_INFERENCE_AUTH_TOKEN <shared-token>
-```
-
-Optional Convex-side controls:
-
-```bash
-npx convex env set MODAL_INFERENCE_TIMEOUT_MS 240000
-npx convex env set MODAL_INFERENCE_LOG_DIAGNOSTICS true
-```
-
-- `MODAL_INFERENCE_TIMEOUT_MS` controls the Convex fetch timeout for a single
-  Modal request. Default: `180000` ms.
-- `MODAL_INFERENCE_LOG_DIAGNOSTICS=true` enables redacted HTTP/gateway
-  diagnostics from `modalClient.ts` for incident debugging.
-
-After any deploy that changes the response contract or route behavior, re-run:
-
-```bash
-npx convex env set MODAL_INFERENCE_URL <modal-endpoint-url>
-```
-
-if the URL changed, then trigger one end-to-end analysis job from Convex/Inngest
-before calling the release ready.
-
-## Smoke Check
-
-Run these checks after deploy:
-
-```bash
-curl <modal-healthcheck-url>
-```
-
-If `healthcheck` returns `"authEnabled": true`, repeat requests with the same
-bearer token configured in Convex so you verify the exact app-to-Modal path.
-
-Then run one timeline analysis job against a known H.264/AAC test asset and
-confirm the workflow reaches `complete-job` in Inngest and stores timeline
-segments in Convex. If the response contract changed, include one single-chunk
-request and one batch request in your manual verification notes.
-
-## Expected Response Shape
-
-Single-chunk responses return:
-
-- `schemaVersion`
-- `chunkId`
-- `transcript`
-- `emotions`
-- `sentiments`
-- `dominantEmotion`
-- `dominantSentiment`
-- `confidence`
-- `utterances`
-- `debug`
-- `modelVersion`
-
-Batch responses return:
-
-- `schemaVersion`
-- `results[]` containing the same per-chunk shape
-- `debug`
-- `modelVersion`
-
-Failures return structured JSON with:
-
-- `schemaVersion`
-- `code`
-- `retryable`
-- `message`
-- `detail`
-
-The `message` field is safe for UI copy. Keep operational details in `detail`
-and logs, not in user-facing strings.
-
-Common operational codes:
-
-- `UNAUTHORIZED`: Convex and Modal auth tokens do not match, or the bearer
-  token is missing.
-- `SERVICE_UNAVAILABLE`: gateway / platform / upstream availability issue while
-  reaching the deployed Modal service.
+| Component | Role |
+|-----------|------|
+| `InferenceWorker` | GPU class: loads `model.pth` from the Modal Volume, runs `UtteranceTimelineEngine` |
+| `infer_timeline_chunk` | HTTP POST: selection + optional batch chunking (see `signalframe_ml.api.service_contract`) |
+| `healthcheck` | Liveness / build identity |

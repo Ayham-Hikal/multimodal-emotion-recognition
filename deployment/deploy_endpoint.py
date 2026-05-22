@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sagemaker.pytorch import PyTorchModel
 import sagemaker
 import os
@@ -33,13 +35,15 @@ def deploy_endpoint():
     if not model_uri:
         raise ValueError("S3_MODEL_URI is required in environment or .env.")
 
+    backend_root = Path(__file__).resolve().parents[1]
+
     model = PyTorchModel(
         model_data=model_uri,
         role=role,
         framework_version="2.5.1",
         py_version="py311",
-        entry_point="inference.py",
-        source_dir=".",
+        entry_point="deployment/inference.py",
+        source_dir=str(backend_root),
         name="sentiment-analysis-model",
     )
 

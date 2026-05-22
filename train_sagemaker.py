@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from sagemaker.pytorch import PyTorch
 from sagemaker.debugger import TensorBoardOutputConfig
@@ -34,9 +35,11 @@ def start_training():
         container_local_output_path="/opt/ml/output/tensorboard"
     )
 
+    backend_dir = Path(__file__).resolve().parent
+
     estimator = PyTorch(
-        entry_point="train.py",
-        source_dir="training",
+        entry_point="training/train.py",
+        source_dir=str(backend_dir),
         role=os.getenv("AWS_ROLE_ARN"),
         framework_version="2.5.1",
         py_version="py311",

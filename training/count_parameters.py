@@ -1,14 +1,21 @@
-from models import MultimodalSentimentModel
+import sys
+from pathlib import Path
+
+_BACKEND = Path(__file__).resolve().parents[1]
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from signalframe_ml.model import MultimodalSentimentModel
 
 
 def count_parameters(model):
     params_dict = {
-        'text_encoder': 0,
-        'video_encoder': 0,
-        'audio_encoder': 0,
-        'fusion_layer': 0,
-        'emotion_classifier': 0,
-        'sentiment_classifier': 0
+        "text_encoder": 0,
+        "video_encoder": 0,
+        "audio_encoder": 0,
+        "fusion_layer": 0,
+        "emotion_classifier": 0,
+        "sentiment_classifier": 0,
     }
 
     total_params = 0
@@ -17,18 +24,18 @@ def count_parameters(model):
             param_count = param.numel()
             total_params += param.numel()
 
-            if 'text_encoder' in name:
-                params_dict['text_encoder'] += param_count
-            elif 'video_encoder' in name:
-                params_dict['video_encoder'] += param_count
-            elif 'audio_encoder' in name:
-                params_dict['audio_encoder'] += param_count
-            elif 'fusion_layer' in name:
-                params_dict['fusion_layer'] += param_count
-            elif 'emotion_classifier' in name:
-                params_dict['emotion_classifier'] += param_count
-            elif 'sentiment_classifier' in name:
-                params_dict['sentiment_classifier'] += param_count
+            if "text_encoder" in name:
+                params_dict["text_encoder"] += param_count
+            elif "video_encoder" in name:
+                params_dict["video_encoder"] += param_count
+            elif "audio_encoder" in name:
+                params_dict["audio_encoder"] += param_count
+            elif "fusion_layer" in name:
+                params_dict["fusion_layer"] += param_count
+            elif "emotion_classifier" in name:
+                params_dict["emotion_classifier"] += param_count
+            elif "sentiment_classifier" in name:
+                params_dict["sentiment_classifier"] += param_count
 
     return params_dict, total_params
 

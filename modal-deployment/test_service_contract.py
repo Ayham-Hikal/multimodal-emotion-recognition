@@ -1,6 +1,6 @@
 import unittest
 
-from service_contract import (
+from signalframe_ml.api.service_contract import (
     ModalServiceSettings,
     build_modal_error_payload,
     build_timeline_batch_response,
