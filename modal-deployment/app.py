@@ -30,6 +30,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import modal
 from fastapi import Header
@@ -349,7 +350,7 @@ def healthcheck() -> dict:
 def infer_timeline_chunk(
     payload: TimelineInferenceRequest,
     authorization: str | None = Header(default=None),
-) -> dict | JSONResponse:
+) -> Any:
     settings = ModalServiceSettings.from_env()
     try:
         ensure_authorized(settings, authorization)
