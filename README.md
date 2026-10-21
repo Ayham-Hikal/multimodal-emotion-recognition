@@ -1,5 +1,11 @@
 # Backend: Multimodal emotion & sentiment (MELD)
 
+> **Capstone project** (Bahçeşehir University, 2026). Team project with
+> [Khaireddine Arbouch](https://github.com/khaireddine-arbouch).
+> Original repo: [khaireddine-arbouch/Video-Intelligence-Engine](https://github.com/khaireddine-arbouch/Video-Intelligence-Engine)
+>
+<!--> **My contributions:** …-->
+
 This directory is the **machine-learning backend** for the capstone: a single
 installable Python package (**`signalframe_ml`**) plus thin entrypoints for
 **training**, **SageMaker**, and **Modal** inference.
