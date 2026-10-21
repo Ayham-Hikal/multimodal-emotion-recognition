@@ -1,10 +1,15 @@
 # Backend: Multimodal emotion & sentiment (MELD)
 
-> **Capstone project** (Bahçeşehir University, 2026). Team project with
-> [Khaireddine Arbouch](https://github.com/khaireddine-arbouch).
+> **Capstone project:** Bahçeşehir University, Faculty of Engineering (2025–2026)
+> Team: Khaireddine Arbouch, Ayham Hikal (AI Engineering) · Nasar Mahmud, Mohammad Siyam (Software Engineering)
+> Advisors: Prof. Murat Gökşin Bakır, Prof. Duygu Çakır Yenidoğan
 > Original repo: [khaireddine-arbouch/Video-Intelligence-Engine](https://github.com/khaireddine-arbouch/Video-Intelligence-Engine)
 >
-<!-- **My contributions:** … -->
+> **My contributions**
+> - Deployed the multimodal model as a real-time AWS SageMaker endpoint (inference handlers, endpoint deployment)
+> - Set up the cloud infrastructure and S3 storage for training data and uploaded videos
+> - Supported experiment tracking, model evaluation, system integration and performance testing
+> - Co-authored the project documentation and final report
 
 This directory is the **machine-learning backend** for the capstone: a single
 installable Python package (**`signalframe_ml`**) plus thin entrypoints for
