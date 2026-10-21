@@ -4,7 +4,7 @@
 > [Khaireddine Arbouch](https://github.com/khaireddine-arbouch).
 > Original repo: [khaireddine-arbouch/Video-Intelligence-Engine](https://github.com/khaireddine-arbouch/Video-Intelligence-Engine)
 >
-<!--> **My contributions:** …-->
+<!-- **My contributions:** … -->
 
 This directory is the **machine-learning backend** for the capstone: a single
 installable Python package (**`signalframe_ml`**) plus thin entrypoints for
