@@ -1,9 +1,9 @@
 # Backend: Multimodal emotion & sentiment (MELD)
 
-> **Capstone project:** Bahçeşehir University, Faculty of Engineering (2025–2026)
-> Team: Khaireddine Arbouch, Ayham Hikal (AI Engineering) · Nasar Mahmud, Mohammad Siyam (Software Engineering)
-> Advisors: Prof. Murat Gökşin Bakır, Prof. Duygu Çakır Yenidoğan
-> Original repo: [khaireddine-arbouch/Video-Intelligence-Engine](https://github.com/khaireddine-arbouch/Video-Intelligence-Engine)
+- **Capstone project:** Bahçeşehir University, Faculty of Engineering (2025–2026)
+- Team: Khaireddine Arbouch, Ayham Hikal (AI Engineering) · Nasar Mahmud, Mohammad Siyam (Software Engineering)
+- Advisors: Prof. Murat Gökşin Bakır, Prof. Duygu Çakır Yenidoğan
+- Original repo: [khaireddine-arbouch/Video-Intelligence-Engine](https://github.com/khaireddine-arbouch/Video-Intelligence-Engine)
 >
 > **My contributions**
 > - Deployed the multimodal model as a real-time AWS SageMaker endpoint (inference handlers, endpoint deployment)
